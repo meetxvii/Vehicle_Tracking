@@ -352,3 +352,55 @@ elif app_mode == "Count Vehicles From Video":
                 start_time = time.time()
             
             fps_markdown.markdown(f"## {fps:.2f}")
+
+
+elif  app_mode == "Road Heatmap":
+    st.subheader("Road Heatmap")
+    
+    video_file_buffer = st.sidebar.file_uploader("Select Video", type=["mp4", "mov", "avi", "asf", "m4v"])
+    required_classes = ['Car', 'bike',]
+
+    required_classes = st.sidebar.multiselect("Select the classes to track", required_classes,required_classes[0])
+    draw_bbox = st.sidebar.checkbox("Draw Bounding Boxes")
+
+    if video_file_buffer is not None:
+        
+        if st.sidebar.button("start"):
+
+            tffile = tempfile.NamedTemporaryFile(delete=False)
+            tffile.write(video_file_buffer.read())
+
+            cap = cv2.VideoCapture(tffile.name)
+
+            stframe = st.empty()
+            required_classes_ids = [idx for idx,cls in class_names.items() if cls in required_classes]
+           
+            heat_map_norm = None
+            heat_map_array = np.ones((1080,1920),dtype='uint32')
+            while True:
+                ret,frame = cap.read()
+                if not ret:
+                    break
+
+                results = model(frame, device='cpu',classes = required_classes_ids)[0]
+
+                for object in results.boxes.data.tolist():
+                    x1, y1, x2, y2, conf, cls = object
+                    if conf < 0.5:
+                        continue
+                    x1 = int(x1)
+                    y1 = int(y1)
+                    x2 = int(x2)
+                    y2 = int(y2)
+                    heat_map_array[y1:y2,x1:x2] += 1
+
+                    if draw_bbox:
+                        cv2.rectangle(frame,(x1,y1),(x2,y2),(255,255,255),2)
+                
+                heat_map_norm = (heat_map_array - heat_map_array.min())/(heat_map_array.max()-heat_map_array.min()) * 255
+                heat_map_norm = heat_map_norm.astype("uint8")
+                heat_map_norm = cv2.GaussianBlur(heat_map_norm, (9,9), 0)
+                heat_map_img = cv2.applyColorMap(heat_map_norm,cv2.COLORMAP_JET)
+                frame = cv2.addWeighted(heat_map_img,0.5,frame,0.5,0)
+
+                stframe.image(frame,channels="BGR")
